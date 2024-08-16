@@ -3,7 +3,19 @@ package main
 import (
 	"errors"
 	"fmt"
+	"strconv"
 )
+
+var commandsMap = map[byte]func([]string, *TcpServer, *Connection) (string, error){
+	0x01: Ping,
+	0x02: Set,
+	0x03: Get,
+	0x04: Replace,
+	0x40: SelectDb,
+	0x50: AuthLogin,
+	0x51: AuthWhoAmI,
+	0x99: Disconnect,
+}
 
 var (
 	ErrNoDbSelected     = errors.New("no db is selected")
@@ -12,6 +24,8 @@ var (
 	ErrKeyNotExists     = errors.New("key not exists")
 	ErrArgumentCount    = errors.New("unexpected amount of arguments")
 	ErrAuthLoginFailed  = errors.New("authentication failed")
+	ErrDbNotExists      = errors.New("db not exists")
+	ErrDbIdParseFailed  = errors.New("db id parsing failed")
 )
 
 const (
@@ -48,7 +62,7 @@ func validateArgsCount(args []string, n int) error {
 }
 
 func Get(args []string, s *TcpServer, con *Connection) (string, error) {
-	err := validateArgsCount(args, 2)
+	err := validateArgsCount(args, 1)
 	if err != nil {
 		return "", err
 	}
@@ -118,11 +132,16 @@ func Set(args []string, s *TcpServer, con *Connection) (string, error) {
 		return "", err
 	}
 
+	err = validateDbSelected(con)
+	if err != nil {
+		return "", err
+	}
+
 	key := args[0]
 	value := args[1]
 
 	if _, ok := s.databases[con.db].data[key]; ok {
-		return "", errors.New("Key doesn't exists")
+		return "", ErrKeyNotExists
 	}
 
 	s.databases[con.db].data[key] = Record{Value: value, Ttl: -1}
@@ -130,6 +149,36 @@ func Set(args []string, s *TcpServer, con *Connection) (string, error) {
 	// by design we're returning the value that is stored in the dictionary
 	// to confirm that assignment was done correctly. The client could use that.
 	return s.databases[con.db].data[key].Value, nil
+}
+
+func SelectDb(args []string, s *TcpServer, con *Connection) (string, error) {
+	err := validateArgsCount(args, 1)
+	if err != nil {
+		return "", err
+	}
+
+	err = validateAuthorization(con)
+	if err != nil {
+		return "", err
+	}
+
+	db_id_int64, err := strconv.ParseInt(args[0], 10, 8)
+	if err != nil {
+		return "", ErrDbIdParseFailed
+	}
+
+	db_id := int8(db_id_int64)
+	if _, exists := s.databases[db_id]; !exists {
+		// if the db not exists, we just create it.
+		s.databases[db_id] = Database{data: make(map[string]Record)}
+	}
+
+	if _, exists := con.user.perms[db_id]; !exists {
+		return "", ErrNotAuthorized
+	}
+
+	con.db = db_id
+	return string(db_id), nil
 }
 
 func Replace(args []string, s *TcpServer, con *Connection) (string, error) {

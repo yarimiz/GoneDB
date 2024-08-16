@@ -217,14 +217,3 @@ func newTcpServer() *TcpServer {
 		users:     make(map[string]User),
 	}
 }
-
-var commandsMap = map[byte]func([]string, *TcpServer, *Connection) (string, error){
-	0x01: Ping,
-	0x02: Set,
-	0x03: Get,
-	0x04: Replace,
-	0x40: NotImplemented,
-	0x50: AuthLogin,
-	0x51: AuthWhoAmI,
-	0x99: Disconnect,
-}
