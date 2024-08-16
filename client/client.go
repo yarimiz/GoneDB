@@ -91,5 +91,8 @@ var commandMap = map[string]byte{
 	"SET":        0x02,
 	"GET":        0x03,
 	"REPLACE":    0x04,
+	"DB":         0x40,
+	"LOGIN":      0x50,
+	"WHOAMI":     0x51,
 	"DISCONNECT": 0x99,
 }
