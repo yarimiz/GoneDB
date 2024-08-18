@@ -11,13 +11,19 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 )
+
+type Conf struct {
+	root_password string `yaml:"root_password"`
+}
 
 type TcpServer struct {
 	listener  net.Listener
 	quitch    chan struct{}
 	databases map[int8]Database
 	users     map[string]User
+	config    Conf
 }
 
 type User struct {
@@ -31,15 +37,18 @@ type Database struct {
 }
 
 type Connection struct {
-	raw           net.Conn
-	db            int8
-	authenticated bool
-	user          User
+	raw  net.Conn
+	db   int8
+	user User
 }
 
 type Record struct {
-	Value string
-	Ttl   int32
+	Value  string
+	Expiry int64
+}
+
+func (r *Record) Ttl() int64 {
+	return r.Expiry - time.Now().Unix()
 }
 
 var server *TcpServer
@@ -160,7 +169,7 @@ func startHttpServer() {
 	fmt.Println("HTTP server is listening on 8080....")
 }
 
-func (s *TcpServer) LoadUsers() map[int8]User {
+func (s *TcpServer) LoadUsers() {
 
 	file, err := os.Open("users.acl")
 	if err != nil {
@@ -168,8 +177,6 @@ func (s *TcpServer) LoadUsers() map[int8]User {
 	}
 	defer file.Close()
 	scanner := bufio.NewScanner(file)
-
-	users := make(map[int8]User)
 
 	for scanner.Scan() {
 		line_txt := scanner.Text()
@@ -205,8 +212,6 @@ func (s *TcpServer) LoadUsers() map[int8]User {
 		server.users[usr.username] = usr
 
 	}
-
-	return users
 }
 
 func newTcpServer() *TcpServer {

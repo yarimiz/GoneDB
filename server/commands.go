@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 )
 
 var commandsMap = map[byte]func([]string, *TcpServer, *Connection) (string, error){
@@ -11,6 +12,8 @@ var commandsMap = map[byte]func([]string, *TcpServer, *Connection) (string, erro
 	0x02: Set,
 	0x03: Get,
 	0x04: Replace,
+	0x05: UpdateTtl,
+	0x06: NotImplemented,
 	0x40: SelectDb,
 	0x50: AuthLogin,
 	0x51: AuthWhoAmI,
@@ -26,6 +29,7 @@ var (
 	ErrAuthLoginFailed  = errors.New("authentication failed")
 	ErrDbNotExists      = errors.New("db not exists")
 	ErrDbIdParseFailed  = errors.New("db id parsing failed")
+	ErrInvalidArgument  = errors.New("invalid argument")
 )
 
 const (
@@ -45,7 +49,7 @@ func validateDbSelected(con *Connection) error {
 	return nil
 }
 
-func validateAuthorization(con *Connection) error {
+func validateLoggedIn(con *Connection) error {
 	if con.user.username == "" {
 		return ErrNotAuthorized
 	}
@@ -67,7 +71,7 @@ func Get(args []string, s *TcpServer, con *Connection) (string, error) {
 		return "", err
 	}
 
-	err = validateAuthorization(con)
+	err = validateLoggedIn(con)
 	if err != nil {
 		return "", err
 	}
@@ -79,6 +83,14 @@ func Get(args []string, s *TcpServer, con *Connection) (string, error) {
 
 	key := args[0]
 	if rec, ok := s.databases[con.db].data[key]; ok {
+
+		if rec.Ttl() < 0 {
+			// record is expired, delete it and return error key not found
+			delete(s.databases[con.db].data, key)
+
+			return "", ErrKeyNotExists
+		}
+
 		return rec.Value, nil
 	} else {
 		return "", ErrKeyNotExists
@@ -109,7 +121,7 @@ func AuthLogin(args []string, s *TcpServer, con *Connection) (string, error) {
 }
 
 func AuthWhoAmI(args []string, s *TcpServer, con *Connection) (string, error) {
-	err := validateAuthorization(con)
+	err := validateLoggedIn(con)
 	if err != nil {
 		return "", err
 	}
@@ -118,7 +130,47 @@ func AuthWhoAmI(args []string, s *TcpServer, con *Connection) (string, error) {
 }
 
 func NotImplemented(args []string, s *TcpServer, con *Connection) (string, error) {
-	return "PONG", nil
+	return "NOT IMPLEMENTED YET", nil
+}
+
+func UpdateTtl(args []string, s *TcpServer, con *Connection) (string, error) {
+	err := validateArgsCount(args, 2)
+	if err != nil {
+		return "", err
+	}
+
+	err = validateLoggedIn(con)
+	if err != nil {
+		return "", err
+	}
+
+	err = validateDbSelected(con)
+	if err != nil {
+		return "", err
+	}
+
+	key := args[0]
+	ttl_parsed, err := strconv.Atoi(args[1])
+
+	if err != nil {
+		return "", ErrInvalidArgument
+	}
+	ttl := int64(ttl_parsed)
+
+	if ttl < 0 {
+		return "", errors.New("ttl must be a positive integer")
+	}
+
+	if _, ok := s.databases[con.db].data[key]; !ok {
+		return "", ErrKeyNotExists
+	}
+
+	obj := s.databases[con.db].data[key]
+	obj.Expiry = time.Now().Unix() + ttl
+
+	s.databases[con.db].data[key] = obj
+
+	return "OK", nil
 }
 
 func Set(args []string, s *TcpServer, con *Connection) (string, error) {
@@ -127,7 +179,7 @@ func Set(args []string, s *TcpServer, con *Connection) (string, error) {
 		return "", err
 	}
 
-	err = validateAuthorization(con)
+	err = validateLoggedIn(con)
 	if err != nil {
 		return "", err
 	}
@@ -144,7 +196,7 @@ func Set(args []string, s *TcpServer, con *Connection) (string, error) {
 		return "", ErrKeyNotExists
 	}
 
-	s.databases[con.db].data[key] = Record{Value: value, Ttl: -1}
+	s.databases[con.db].data[key] = Record{Value: value, Expiry: -1}
 
 	// by design we're returning the value that is stored in the dictionary
 	// to confirm that assignment was done correctly. The client could use that.
@@ -157,7 +209,7 @@ func SelectDb(args []string, s *TcpServer, con *Connection) (string, error) {
 		return "", err
 	}
 
-	err = validateAuthorization(con)
+	err = validateLoggedIn(con)
 	if err != nil {
 		return "", err
 	}
@@ -187,24 +239,25 @@ func Replace(args []string, s *TcpServer, con *Connection) (string, error) {
 		return "", err
 	}
 
-	err = validateAuthorization(con)
+	err = validateLoggedIn(con)
 	if err != nil {
 		return "", err
 	}
 
 	key := args[0]
 
-	if _, ok := s.databases[con.db].data[key]; ok {
-		value := args[1]
-		s.databases[con.db].data[key] = Record{Value: string(value), Ttl: -1}
-
-		// by design we're returning the value that is stored in the dictionary
-		// to confirm that assignment was done correctly. The client could use that.
-		return s.databases[con.db].data[key].Value, nil
-
-	} else {
-		return "", errors.New("Key doesn't exists")
+	if _, ok := s.databases[con.db].data[key]; !ok {
+		return "", ErrKeyNotExists
 	}
+
+	value := args[1]
+	record := s.databases[con.db].data[key]
+	record.Value = string(value)
+	s.databases[con.db].data[key] = record
+
+	// by design we're returning the value that is stored in the dictionary
+	// to confirm that assignment was done correctly. The client could use that.
+	return s.databases[con.db].data[key].Value, nil
 }
 
 func Disconnect(args []string, s *TcpServer, con *Connection) (string, error) {

@@ -1,0 +1,4 @@
+# ACL File permissions
+# Format:
+# user_id: username: password: [(db_id, permission), (db_id, permission), ...]
+# example: 1: alice: password123: [(0, 1), (1, 2), (2, 1)]

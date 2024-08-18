@@ -52,7 +52,7 @@ func encodePackage(input []byte) ([]byte, error) {
 	// set the version as 1
 	payload[0] = 1
 
-	re := regexp.MustCompile(`(?m)^(?P<Command>[A-Z]+)(?:\s+(?P<Args>[^|\n]*))?(?:\s*\|\s*(?P<Pairs>(?:\s*[a-zA-Z]+\s+\d+\s*)*))?$`)
+	re := regexp.MustCompile(`(?m)^(?P<Command>[A-Z.]+)(?:\s+(?P<Args>[^|\n]*))?(?:\s*\|\s*(?P<Pairs>(?:\s*[a-zA-Z]+\s+\d+\s*)*))?$`)
 	match := re.FindStringSubmatch(string(input))
 
 	if len(match) == 0 {
@@ -91,6 +91,8 @@ var commandMap = map[string]byte{
 	"SET":        0x02,
 	"GET":        0x03,
 	"REPLACE":    0x04,
+	"EX":         0x05,
+	"SETEX":      0x06,
 	"DB":         0x40,
 	"LOGIN":      0x50,
 	"WHOAMI":     0x51,
