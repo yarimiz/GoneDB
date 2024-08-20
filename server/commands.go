@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -57,7 +58,7 @@ func validateLoggedIn(con *Connection) error {
 	return nil
 }
 
-func validateArgsCount(args []string, n int) error {
+func validateArgsCountExact(args []string, n int) error {
 	if len(args) != n {
 		return errors.New("unexpected amount of arguments")
 	}
@@ -65,8 +66,16 @@ func validateArgsCount(args []string, n int) error {
 	return nil
 }
 
+func validateArgsCountAtLeast(args []string, n int) error {
+	if len(args) < n {
+		return errors.New("unexpected amount of arguments")
+	}
+
+	return nil
+}
+
 func Get(args []string, s *TcpServer, con *Connection) (string, error) {
-	err := validateArgsCount(args, 1)
+	err := validateArgsCountExact(args, 1)
 	if err != nil {
 		return "", err
 	}
@@ -84,7 +93,7 @@ func Get(args []string, s *TcpServer, con *Connection) (string, error) {
 	key := args[0]
 	if rec, ok := s.databases[con.db].data[key]; ok {
 
-		if rec.Ttl() < 0 {
+		if rec.Ttl() < 0 && rec.Expiry != -1 {
 			// record is expired, delete it and return error key not found
 			delete(s.databases[con.db].data, key)
 
@@ -102,7 +111,7 @@ func Ping(args []string, s *TcpServer, con *Connection) (string, error) {
 }
 
 func AuthLogin(args []string, s *TcpServer, con *Connection) (string, error) {
-	err := validateArgsCount(args, 2)
+	err := validateArgsCountExact(args, 2)
 	if err != nil {
 		return "", err
 	}
@@ -134,7 +143,7 @@ func NotImplemented(args []string, s *TcpServer, con *Connection) (string, error
 }
 
 func UpdateTtl(args []string, s *TcpServer, con *Connection) (string, error) {
-	err := validateArgsCount(args, 2)
+	err := validateArgsCountExact(args, 2)
 	if err != nil {
 		return "", err
 	}
@@ -174,7 +183,7 @@ func UpdateTtl(args []string, s *TcpServer, con *Connection) (string, error) {
 }
 
 func Set(args []string, s *TcpServer, con *Connection) (string, error) {
-	err := validateArgsCount(args, 2)
+	err := validateArgsCountAtLeast(args, 2)
 	if err != nil {
 		return "", err
 	}
@@ -190,7 +199,14 @@ func Set(args []string, s *TcpServer, con *Connection) (string, error) {
 	}
 
 	key := args[0]
-	value := args[1]
+
+	var value string
+	if strings.HasPrefix(args[1], "\"") && strings.HasSuffix(args[len(args)-1], "\"") {
+		value = strings.Join(args[1:], " ")
+		value = value[1 : len(value)-1]
+	} else {
+		value = args[1]
+	}
 
 	if _, ok := s.databases[con.db].data[key]; ok {
 		return "", ErrKeyNotExists
@@ -204,7 +220,7 @@ func Set(args []string, s *TcpServer, con *Connection) (string, error) {
 }
 
 func SelectDb(args []string, s *TcpServer, con *Connection) (string, error) {
-	err := validateArgsCount(args, 1)
+	err := validateArgsCountExact(args, 1)
 	if err != nil {
 		return "", err
 	}
@@ -234,7 +250,7 @@ func SelectDb(args []string, s *TcpServer, con *Connection) (string, error) {
 }
 
 func Replace(args []string, s *TcpServer, con *Connection) (string, error) {
-	err := validateArgsCount(args, 2)
+	err := validateArgsCountExact(args, 2)
 	if err != nil {
 		return "", err
 	}
